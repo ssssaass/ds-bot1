@@ -2,11 +2,11 @@ import discord
 from discord.ext import commands
 from discord import ui
 import json
-import os  # <- добавили
+import os
 from datetime import datetime
 
 # ТОКЕН БОТА через переменную окружения
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN")  # <- добавь переменную на Railway
 if TOKEN is None:
     raise ValueError("❌ ERROR: Discord token not found in environment variables")
 
@@ -28,20 +28,25 @@ def save_data():
     with open('ticket_data.json', 'w') as f:
         json.dump(ticket_data, f, indent=4)
 
-# Класс для кнопок покупки
-class PurchaseButtons(ui.View):
+# Класс для DropDown меню
+class TicketDropdown(ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="HWID Reset", description="Reset your HWID", emoji="🔄"),
+            discord.SelectOption(label="Support", description="Get technical support", emoji="🔧"),
+            discord.SelectOption(label="Purchase", description="Purchase related issues", emoji="💳")
+        ]
+        super().__init__(placeholder="Choose ticket type...", options=options, custom_id="ticket_dropdown")
+
+    async def callback(self, interaction: discord.Interaction):
+        await create_ticket(interaction, self.values[0])
+
+class DropdownView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        self.add_item(TicketDropdown())
 
-    @ui.button(label="🛒 Purchase", style=discord.ButtonStyle.success, custom_id="purchase_button")
-    async def purchase_button(self, interaction: discord.Interaction, button: ui.Button):
-        await create_purchase_ticket(interaction, "Purchase")
-
-    @ui.button(label="❓ Help with Purchase", style=discord.ButtonStyle.primary, custom_id="purchase_help_button")
-    async def purchase_help_button(self, interaction: discord.Interaction, button: ui.Button):
-        await create_purchase_ticket(interaction, "Purchase Help")
-
-# Класс для кнопки закрытия тикета
+# Класс для кнопки закрытия
 class CloseButtonView(ui.View):
     def __init__(self, ticket_channel, ticket_number):
         super().__init__(timeout=None)
@@ -64,14 +69,14 @@ class CloseButtonView(ui.View):
             guild = interaction.guild
             log_embed = discord.Embed(
                 title=f"📁 Ticket #{self.ticket_number:04d} Closed",
-                description=f"**Type:** Purchase\n**Closed by:** {interaction.user.mention}\n**Closed at:** <t:{int(datetime.now().timestamp())}:f>",
+                description=f"**Closed by:** {interaction.user.mention}\n**Closed at:** <t:{int(datetime.now().timestamp())}:f>",
                 color=0xff0000
             )
             
             # Ищем канал для логов
             category = discord.utils.get(guild.categories, name="TICKETS")
             if category:
-                log_channel = discord.utils.get(category.text_channels, name="purchase-logs")
+                log_channel = discord.utils.get(category.text_channels, name="ticket-logs")
                 if not log_channel:
                     # Настройка прав для логов - только для роли поддержки
                     support_role = guild.get_role(1436675304289730632)
@@ -82,7 +87,7 @@ class CloseButtonView(ui.View):
                     if support_role:
                         overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
                     
-                    log_channel = await category.create_text_channel("purchase-logs", overwrites=overwrites)
+                    log_channel = await category.create_text_channel("ticket-logs", overwrites=overwrites)
                 
                 await log_channel.send(embed=log_embed)
             
@@ -98,8 +103,8 @@ class CloseButtonView(ui.View):
         
         await interaction.response.send_message(embed=confirm_embed, view=confirm_view, ephemeral=True)
 
-# Функция создания тикета покупки
-async def create_purchase_ticket(interaction: discord.Interaction, ticket_type: str):
+# Функция создания тикета
+async def create_ticket(interaction: discord.Interaction, ticket_type: str):
     ticket_data["ticket_count"] += 1
     ticket_number = ticket_data["ticket_count"]
     
@@ -129,10 +134,7 @@ async def create_purchase_ticket(interaction: discord.Interaction, ticket_type: 
         )
     
     # Создаем имя канала
-    if ticket_type == "Purchase":
-        ticket_name = f"purchase-{ticket_number:04d}"
-    else:
-        ticket_name = f"purchase-help-{ticket_number:04d}"
+    ticket_name = f"ticket-{ticket_number:04d}-{ticket_type.lower().replace(' ', '-')}"
     
     # Настройка прав доступа для тикета
     # Только автор тикета и роль поддержки имеют доступ
@@ -167,46 +169,28 @@ async def create_purchase_ticket(interaction: discord.Interaction, ticket_type: 
     }
     save_data()
     
-    # Создаем embed для тикета покупки
-    if ticket_type == "Purchase":
-        ticket_embed = discord.Embed(
-            title=f"🛒 Purchase Ticket #{ticket_number:04d}",
-            description="Thank you for your interest in purchasing our products!",
-            color=0x00ff00
-        )
-        ticket_embed.add_field(
-            name="📋 Ticket Information",
-            value=f"**Type:** {ticket_type}\n**Created by:** {interaction.user.mention}\n**Created at:** <t:{int(datetime.now().timestamp())}:f>",
-            inline=False
-        )
-        ticket_embed.add_field(
-            name="💰 What to do next?",
-            value="• Please specify what product you want to purchase\n• Let us know your preferred payment method\n• Our sales team will assist you with the purchase process",
-            inline=False
-        )
-    else:
-        ticket_embed = discord.Embed(
-            title=f"❓ Purchase Help Ticket #{ticket_number:04d}",
-            description="Thank you for contacting us about purchase assistance!",
-            color=0x0099ff
-        )
-        ticket_embed.add_field(
-            name="📋 Ticket Information",
-            value=f"**Type:** {ticket_type}\n**Created by:** {interaction.user.mention}\n**Created at:** <t:{int(datetime.now().timestamp())}:f>",
-            inline=False
-        )
-        ticket_embed.add_field(
-            name="💡 How can we help?",
-            value="• Please describe what you need help with\n• Specify any issues you're having with the purchase process\n• Our team will guide you through everything",
-            inline=False
-        )
-    
+    # Создаем embed для тикета
+    ticket_embed = discord.Embed(
+        title=f"🎫 Ticket #{ticket_number:04d}",
+        description="Thank you for contacting **Mented Support**!",
+        color=0x5865F2
+    )
     ticket_embed.add_field(
-        name="⏰ Response Time",
-        value="Our team will respond as soon as possible. Please be patient.",
+        name="📋 Ticket Information",
+        value=f"**Type:** {ticket_type}\n**Created by:** {interaction.user.mention}\n**Created at:** <t:{int(datetime.now().timestamp())}:f>",
         inline=False
     )
-    ticket_embed.set_footer(text="Mented Sales Team")
+    ticket_embed.add_field(
+        name="📝 What to do next?",
+        value="• Please describe your issue in detail\n• Provide any relevant information\n• Be patient while waiting for support\n• Use English or Russian languages",
+        inline=False
+    )
+    ticket_embed.add_field(
+        name="⚠️ Important Notes",
+        value="Our support is only offered for problems caused by our Services. Tickets unrelated to Mented and our products will be closed.",
+        inline=False
+    )
+    ticket_embed.set_footer(text="Mented Support Team")
     
     # Отправляем сообщения в тикет
     if support_role:
@@ -217,7 +201,7 @@ async def create_purchase_ticket(interaction: discord.Interaction, ticket_type: 
     # Подтверждение пользователю
     success_embed = discord.Embed(
         title="✅ Ticket Created Successfully!",
-        description=f"Your {ticket_type.lower()} ticket has been created: {ticket_channel.mention}\n\nOur sales team will assist you shortly.",
+        description=f"Your ticket has been created: {ticket_channel.mention}\n\nOur support team will assist you shortly.",
         color=0x00ff00
     )
     await interaction.response.send_message(embed=success_embed, ephemeral=True)
@@ -228,108 +212,51 @@ async def on_ready():
     print(f'📊 Connected to {len(bot.guilds)} server(s)')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Mented Tickets"))
     
-    # Добавляем персистентное view для кнопок покупки
-    bot.add_view(PurchaseButtons())
-    print("🎫 Purchase ticket system ready!")
+    # Добавляем персистентное view
+    bot.add_view(DropdownView())
+    print("🎫 Ticket system ready!")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def setup_purchase(ctx):
-    """Создает сообщение с системой тикетов покупки в текущем канале"""
+async def setup(ctx):
+    """Создает сообщение с системой тикетов"""
     embed = discord.Embed(
-        title="🛒 **Mented Purchase Support**",
-        description="Welcome to our purchase department! We're here to help you with:\n\n• **Product Purchases** - Buy our products securely\n• **Purchase Assistance** - Get help with buying process\n• **Payment Issues** - Resolve any payment problems\n\n👇 **Choose an option below:**",
-        color=0x00ff00
+        title="🎫 **Welcome to the Mented Ticket Support!**",
+        color=0x5865F2
     )
     
-    embed.add_field(
-        name="🛒 Purchase",
-        value="Start a new purchase order for our products",
-        inline=True
-    )
-    embed.add_field(
-        name="❓ Help with Purchase",
-        value="Get assistance with the purchase process",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="ℹ️ Information",
-        value="• Our support team will assist you shortly\n• Please be patient for responses\n• Use English or Russian languages",
-        inline=False
-    )
-    
-    embed.set_footer(text="Mented Sales • Fast and Secure Purchases")
-    
-    await ctx.send(embed=embed, view=PurchaseButtons())
-    await ctx.message.delete()
+    welcome_text = """**1.** Our support is only offered to you if there is a problem caused by our Services, tickets unrelated to Mented and our products will be closed.
+**2.** Our main support language is English / Russian. Please use a translator if necessary.
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup_purchase_channel(ctx):
-    """Создает сообщение с системой тикетов покупки в указанном канале"""
-    try:
-        # Получаем целевой канал по ID
-        target_channel_id = 1436673657165320192
-        target_channel = bot.get_channel(target_channel_id)
-        
-        if target_channel is None:
-            await ctx.send("❌ Target channel not found!")
-            return
-        
-        embed = discord.Embed(
-            title="🛒 **Mented Purchase Support**",
-            description="Welcome to our purchase department! We're here to help you with:\n\n• **Product Purchases** - Buy our products securely\n• **Purchase Assistance** - Get help with buying process\n• **Payment Issues** - Resolve any payment problems\n\n👇 **Choose an option below:**",
-            color=0x00ff00
-        )
-        
-        embed.add_field(
-            name="🛒 Purchase",
-            value="Start a new purchase order for our products",
-            inline=True
-        )
-        embed.add_field(
-            name="❓ Help with Purchase",
-            value="Get assistance with the purchase process",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="ℹ️ Information",
-            value="• Our support team will assist you shortly\n• Please be patient for responses\n• Use English or Russian languages",
-            inline=False
-        )
-        
-        embed.set_footer(text="Mented Sales • Fast and Secure Purchases")
-        
-        await target_channel.send(embed=embed, view=PurchaseButtons())
-        await ctx.send("✅ Purchase ticket system setup completed!")
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+👇 **Select your ticket type below:**"""
+    
+    embed.description = welcome_text
+    embed.set_footer(text="We're here to help! • Mented Support")
+    
+    await ctx.send(embed=embed, view=DropdownView())
+    await ctx.message.delete()
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def close(ctx):
     """Закрывает текущий тикет (админ команда)"""
-    if "purchase" in ctx.channel.name.lower():
+    if "ticket" in ctx.channel.name.lower():
         # Находим данные тикета
         ticket_info = ticket_data["active_tickets"].get(str(ctx.channel.id))
         if ticket_info:
             ticket_number = ticket_info["ticket_number"]
-            ticket_type = ticket_info["ticket_type"]
             
             # Создаем лог
             log_embed = discord.Embed(
                 title=f"📁 Ticket #{ticket_number:04d} Closed",
-                description=f"**Type:** {ticket_type}\n**Closed by:** {ctx.author.mention}\n**Closed at:** <t:{int(datetime.now().timestamp())}:f>",
+                description=f"**Closed by:** {ctx.author.mention}\n**Closed at:** <t:{int(datetime.now().timestamp())}:f>",
                 color=0xff0000
             )
             
             # Ищем канал для логов
             category = discord.utils.get(ctx.guild.categories, name="TICKETS")
             if category:
-                log_channel = discord.utils.get(category.text_channels, name="purchase-logs")
+                log_channel = discord.utils.get(category.text_channels, name="ticket-logs")
                 if not log_channel:
                     # Настройка прав для логов - только для роли поддержки
                     support_role = ctx.guild.get_role(1436675304289730632)
@@ -340,7 +267,7 @@ async def close(ctx):
                     if support_role:
                         overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
                     
-                    log_channel = await category.create_text_channel("purchase-logs", overwrites=overwrites)
+                    log_channel = await category.create_text_channel("ticket-logs", overwrites=overwrites)
                 
                 await log_channel.send(embed=log_embed)
             
@@ -353,7 +280,7 @@ async def close(ctx):
         else:
             await ctx.send("❌ Ticket data not found!")
     else:
-        await ctx.send("❌ This is not a purchase ticket channel!")
+        await ctx.send("❌ This is not a ticket channel!")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -364,7 +291,7 @@ async def on_command_error(ctx, error):
 
 # Запуск бота
 if __name__ == "__main__":
-    print("🚀 Starting Mented Purchase Ticket Bot...")
+    print("🚀 Starting Mented Ticket Bot...")
     try:
         bot.run(TOKEN)
     except discord.LoginFailure:
